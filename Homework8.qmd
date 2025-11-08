@@ -1,0 +1,25 @@
+---
+title: "Homework8"
+format: html
+editor: visual
+---
+
+## Data
+
+Seoul Bike Sharing Demand dataset from the UCI Machine Learning Repository.
+
+```{r}
+# Load Libraries
+library(tidyverse)
+```
+
+```{r}
+bike_sharing <- read_csv("SeoulBikeData.csv", 
+                         col_names = c("Date", "Rented_Bike_Count", "Hour",
+                                       "Temperature", "Humidity", "Wind_Speed",
+                                       "Visibility", "Dew_Point_Temperature",
+                                       "Solar_Radiation", "Rainfall", "Snowfall",
+                                       "Seasons", "Holiday", "Functioning_Day"),
+                         skip = 1)
+bike_sharing
+```
