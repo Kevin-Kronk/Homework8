@@ -15,12 +15,14 @@ library(tidymodels)
 ```
 
 ```{r}
+#Loading in the csv file while setting the column names and types
 bike_sharing <- read_csv("SeoulBikeData.csv", 
                          col_names = c("Date", "Rented_Bike_Count", "Hour",
                                        "Temperature", "Humidity", "Wind_Speed",
                                        "Visibility", "Dew_Point_Temperature",
                                        "Solar_Radiation", "Rainfall", "Snowfall",
                                        "Seasons", "Holiday", "Functioning_Day"),
+                         col_types = c("cnnnnnnnnnnccc"),
                          skip = 1)
 bike_sharing
 ```
@@ -30,22 +32,36 @@ bike_sharing
 To start we will check for missing data. From the output there is no missing data.
 
 ```{r}
+# Sum up all of the NA values for each column
 colSums(is.na(bike_sharing))
 ```
 
 Next we will look at column types and the values within columns.
 
 ```{r}
+# Structure of the data
 str(bike_sharing)
 ```
 
-To look at the basic summary statistics of numerical variables, the summary function can be used. It should be noted that the Date column is simply every day of the year with an entry for each hour of that date. Most of the variables look reasonable, though there are some like Rainfall and Snowfall that have at least half of the data being 0. Density plots or box plots may be needed to check the distributions of the data.
+Date, Seasons, Holiday, and Functioning_Day were all set to character when loading the file. All of the other variables were set to numeric.
+
+To look at the basic summary statistics of numerical variables, the summary function can be used. Most of the variables look reasonable, though there are some like Rainfall and Snowfall that have at least half of the data being 0. Density plots or box plots may be needed to check the distributions of the data.
 
 ```{r}
+# Basic Summary Statistics for Numerical Variables
 summary(bike_sharing)
 ```
 
-For categorical variables we can look at the values that they take on. As you would expect there is a roughly equal spread of entries for each season. There's far fewer holiday entries, than non-Holiday, as well as far fewer non-functioning days than functioning ones.
+For categorical variables we can look at the values that they take on.
+
+```{r}
+# Finds the count of the Date values
+bike_sharing |>
+  group_by(Date) |>
+  summarize(count = n())
+```
+
+There are 24 values for each date, referring to each hour of the day. Overall, there are 365 days in this dataset.
 
 ```{r}
 # Finds the count of the four seasons
@@ -54,21 +70,28 @@ bike_sharing |>
   summarize(count = n())
 ```
 
+As you would expect there is a roughly equal spread of entries for each season.
+
 ```{r}
+# Finds the count of the holidays
 bike_sharing |>
   group_by(Holiday) |>
   summarize(count = n())
 ```
 
 ```{r}
+# Finds the count of the functioning days
 bike_sharing |>
   group_by(Functioning_Day) |>
   summarize(count = n())
 ```
 
+There's far fewer holiday entries than non-Holiday, as well as far fewer non-functioning days than functioning ones.
+
 The Date will be converted to a datetime variable, and the three categorical variables, Seasons, Holiday, and Functioning_Day will be converted to factors so they can be used in a model.
 
 ```{r}
+# Converting variables using mutate to store as the same name
 bike_sharing <- bike_sharing |>
   mutate(Date = as.POSIXct(Date, format = "%d/%m/%Y"),
          Seasons = as.factor(Seasons),
@@ -78,45 +101,38 @@ bike_sharing <- bike_sharing |>
 bike_sharing
 ```
 
-The response variable of our data is the Rented Bike Count. We want to know how the explanatory variables vary with it.
+The response variable of our data is the Rented Bike Count. We want to know how the explanatory variables vary with it. We can look at some summary statistics for each numeric variable like mean, standard deviation, covariance with rented bike count, and correlation with rented bike count.
 
 ```{r}
-plot(bike_sharing$Hour, bike_sharing$Rented_Bike_Count)
+# For numeric columns that aren't rented bike count or hour
+# Find the mean, sd, and cov and cor with rented bike count
+bike_sharing |>
+  summarize(across(where(is.numeric) & !matches("Rented_Bike_Count|Hour"),
+                   .fns = list(mean = mean,
+                               sd = sd,
+                               cov_Bike = ~cov(.x, Rented_Bike_Count),
+                               cor_Bike = ~cor(.x, Rented_Bike_Count)),
+                   .names = "{.col}_{.fn}")) |>
+  # Round all values to 3 decimal places
+  summarize(across(everything(), ~round(.x,3))) |>
+  # This creates one wide tibble, but we want it to be longer
+  pivot_longer(
+    # Choose all the columns from above
+    cols = everything(),
+    # Split up the variable name into a column, then all the value columns
+    names_to = c("variable", ".value"),
+    # Have to use regex to split on the underscore that separates the 
+    # variable name from the function name
+    names_pattern = "^(.*)_(mean|sd|cor_Bike|cov_Bike)$"
+  )
 ```
 
-```{r}
-plot(bike_sharing$Temperature, bike_sharing$Rented_Bike_Count)
-```
+These variables are on fairly different scales, so we may need to standardize them. The variable that correlated most highly with bike rentals is temperature. Humidity, rainfall, and snowfall are all negatively correlated with bike rentals and you might expect. That being said, a lot of these correlations are weak.
+
+Next, here are the summary statistics of Rented Bike Count across the levels of each categorical variable.
 
 ```{r}
-plot(bike_sharing$Humidity, bike_sharing$Rented_Bike_Count)
-```
-
-```{r}
-plot(bike_sharing$Wind_Speed, bike_sharing$Rented_Bike_Count)
-```
-
-```{r}
-plot(bike_sharing$Visibility, bike_sharing$Rented_Bike_Count)
-```
-
-```{r}
-plot(bike_sharing$Dew_Point_Temperature, bike_sharing$Rented_Bike_Count)
-```
-
-```{r}
-plot(bike_sharing$Solar_Radiation, bike_sharing$Rented_Bike_Count)
-```
-
-```{r}
-plot(bike_sharing$Rainfall, bike_sharing$Rented_Bike_Count)
-```
-
-```{r}
-plot(bike_sharing$Snowfall, bike_sharing$Rented_Bike_Count)
-```
-
-```{r}
+# Summary Statistics of Rented Bike Count across Seasons
 bike_sharing |>
   group_by(Seasons) |>
   summarize(mean_bikes = mean(Rented_Bike_Count),
@@ -125,9 +141,10 @@ bike_sharing |>
             IQR_bikes = IQR(Rented_Bike_Count))
 ```
 
-There seems to be a clear pattern in that more bikes are rented in the spring, summer, and fall, than in the winter, which is what we would expect.
+There seems to be a clear pattern in that more bikes are rented in the spring, summer, and fall, than in the winter, which is what we would expect due to the cold weather.
 
 ```{r}
+# Summary Statistics of Rented Bike Count across Holidays
 bike_sharing |>
   group_by(Holiday) |>
   summarize(mean_bikes = mean(Rented_Bike_Count),
@@ -139,6 +156,7 @@ bike_sharing |>
 Interestingly enough more bikes are sold on non-holidays, but that may also be because a lot of holidays are during the colder months.
 
 ```{r}
+# Summary Statistics of Rented Bike Count across Functioning Days
 bike_sharing |>
   group_by(Functioning_Day) |>
   summarize(mean_bikes = mean(Rented_Bike_Count),
@@ -150,6 +168,7 @@ bike_sharing |>
 Finally, for the Functioning Day variable no bikes were sold on non-functioning days. This means that future non-functioning days will most likely also have 0 bikes rented. Therefore, we will subset the data to only look on the days that were functioning.
 
 ```{r}
+# Subsetting the data for only Functioning Days, then removing variable
 bike_sharing <- bike_sharing |>
   filter(Functioning_Day == "Yes") |>
   select(everything(), -Functioning_Day)
@@ -160,6 +179,7 @@ bike_sharing
 Next we will summarize the data across the hours so there is only one observation per day.
 
 ```{r}
+# Summarzing data to only have one observation per day
 bike_sharing <- bike_sharing |>
   group_by(Date, Seasons, Holiday) |>
   summarize(across(c(Rented_Bike_Count, Rainfall, Snowfall), sum),
@@ -170,8 +190,11 @@ bike_sharing <- bike_sharing |>
 bike_sharing
 ```
 
+Now that we've processed the data, we can look at the summary statistics again as well as some correlations and plots.
+
 ```{r}
 # Basic Summary Statistics
+# This time it also shows the values in Date or Categorical variables
 summary(bike_sharing)
 ```
 
@@ -182,61 +205,149 @@ bike_sharing |>
   cor(use = "pairwise.complete.obs")
 ```
 
-There does seem to be a very high correlation between Temperature and Dew Point Temperature, this could potentially cause multicollinearity issues. Other than that the variables most correlated with Rented Bike Count are Temperature, Dew_Point_Temperature, and Solar_Radiation. All of these are reasonably strong positive correlations.
+There does seem to be a very high correlation between Temperature and Dew Point Temperature, which could potentially cause multicollinearity issues. Other than that the variable correlations seem fine. The variables most correlated with Rented Bike Count are Temperature, Dew_Point_Temperature, and Solar_Radiation. All of these are reasonably strong positive correlations.
 
 ```{r}
-bike_sharing |> 
-  group_by(Seasons) |>
-  summarize(mean_bike = mean(Rented_Bike_Count),
-            med_bike = median(Rented_Bike_Count),
-            SD_bike = sd(Rented_Bike_Count),
-            IQR_bike = IQR(Rented_Bike_Count))
+ggplot(bike_sharing, aes(Date, Rented_Bike_Count)) +
+         geom_point() +
+         labs(title = "Date vs Rented Bike Count")
 ```
 
-Recreate basic summary statistics then create some plots to explore the relationships.
+For the most part there are fewer bike rentals in the earlier part of the year than in the second half.
+
+```{r}
+ggplot(bike_sharing, aes(Seasons, Rented_Bike_Count, color = Seasons)) +
+         geom_boxplot() +
+         labs(title = "Seasons vs Rented Bike Count")
+```
+
+This reiterates what is seen in the Date scatter plot that far fewer people rent bikes in the winter. The distributions also seem to be slightly left skewed.
+
+```{r}
+ggplot(bike_sharing, aes(Holiday, Rented_Bike_Count, color = Holiday)) +
+         geom_boxplot() +
+         labs(title = "Holiday vs Rented Bike Count")
+```
+
+More people on average rent bikes on non-holidays.
+
+```{r}
+ggplot(bike_sharing, aes(Rainfall, Rented_Bike_Count)) +
+         geom_point() +
+         labs(title = "Rainfall vs Rented Bike Count")
+```
+
+Seems to be a trend that generally the more rainfall the fewer people rent bikes.
+
+```{r}
+ggplot(bike_sharing, aes(Snowfall, Rented_Bike_Count)) +
+         geom_point() +
+         labs(title = "Snowfall vs Rented Bike Count")
+```
+
+In this case the trend seems to be that if there's any snowfall then very few people rent bikes.
+
+```{r}
+ggplot(bike_sharing, aes(Temperature, Rented_Bike_Count)) +
+         geom_point() +
+         labs(title = "Temperature vs Rented Bike Count")
+```
+
+Generally the warmer the weather, the more people will rent bikes. The trend looks like it starts to decrease though once it gets too hot.
+
+```{r}
+ggplot(bike_sharing, aes(Humidity, Rented_Bike_Count)) +
+         geom_point() +
+         labs(title = "Humidity vs Rented Bike Count")
+```
+
+There doesn't seem to be much of a trend between humidity and bike rentals.
+
+```{r}
+ggplot(bike_sharing, aes(Wind_Speed, Rented_Bike_Count)) +
+         geom_point() +
+         labs(title = "Wind_Speed vs Rented Bike Count")
+```
+
+Generally wind speed doesn't seem to affect bike rentals until it gets extremely windy.
+
+```{r}
+ggplot(bike_sharing, aes(Visibility, Rented_Bike_Count)) +
+         geom_point() +
+         labs(title = "Visibility vs Rented Bike Count")
+```
+
+Visibility doesn't seem to have a trend with bike rentals.
+
+```{r}
+ggplot(bike_sharing, aes(Dew_Point_Temperature, Rented_Bike_Count)) +
+         geom_point() +
+         labs(title = "Dew_Point_Temperature vs Rented Bike Count")
+```
+
+As we would expect based on the high correlation, the relationship between dew point temperature and bike rentals looks very similar to temperature.
+
+```{r}
+ggplot(bike_sharing, aes(Solar_Radiation, Rented_Bike_Count)) +
+         geom_point() +
+         labs(title = "Solar_Radiation vs Rented Bike Count")
+```
+
+Generally it seems like the more solar radiation the more bike rentals. People probably like to ride bikes on nice sunny days. That being said, there's a lot of variability here.
 
 ## Split the Data
 
+To train and test a model we need to split the data into a train and test set. The training set will then use cross validation to average out the error metric across the entire training set to see which model performed best.
+
 ```{r}
+# Random seed
 set.seed(10)
 
+# Get the split indexes and split the training and test set, stratified by seasons
 bike_share_split <- initial_split(bike_sharing, prop = 0.75, strata=Seasons)
 bike_train <- training(bike_share_split)
 bike_test <- testing(bike_share_split)
 
+# Get the 10 fold CV splits
 bike_folds <- vfold_cv(bike_train, v = 10)
 ```
 
 ## Fitting MLR Models
 
-First Recipe
+First Recipe will be a basic multiple linear regression with rented bike count as the response.
 
 ```{r}
 bike_rec <- 
   recipe(Rented_Bike_Count ~ ., data = bike_train) |>
+  # Don't include Date in the model, make it a unique ID
   update_role(Date, new_role = "ID") |>
+  # Find the day of the week, use it to determine the weekend, then drop Date_dow
   step_date(Date, features = c("dow")) |>
   step_mutate(Weekend = factor(if_else((Date_dow == "Sat" | 
                                         Date_dow == "Sun"),
                                "Yes", "No"))) |>
   step_rm(Date_dow) |>
+  # Normalize all numeric variables to get them on the same scale
   step_normalize(all_numeric(), -all_outcomes()) |>
   step_dummy(Seasons, Holiday, Weekend) #|>
   #prep(training = bike_train) |>
   #bake(bike_train)
 ```
 
-Second Recipe
+Second Recipe will be the same as the first but including some interaction terms.
 
 ```{r}
 bike_rec2 <- 
   recipe(Rented_Bike_Count ~ ., data = bike_train) |>
+  # Don't include Date in the model, make it a unique ID
   update_role(Date, new_role = "ID") |>
+  # Find the day of the week, use it to determine the weekend, then drop Date_dow
   step_date(Date, features = c("dow")) |>
   step_mutate(Weekend = factor(if_else((Date_dow == "Sat" | 
                                         Date_dow == "Sun"),
                                "Yes", "No"))) |>
   step_rm(Date_dow) |>
+  # Normalize all numeric variables to get them on the same scale
   step_normalize(all_numeric(), -all_outcomes()) |>
   step_dummy(Seasons, Holiday, Weekend) |>
   step_interact(terms = ~ (starts_with("Seasons")):(Holiday_No.Holiday +
@@ -246,17 +357,20 @@ bike_rec2 <-
   #bake(bike_train)
 ```
 
-Third Recipe
+Third Recipe will be the same as the second but also including quadratic terms for all of the numeric variables.
 
 ```{r}
 bike_rec3 <- 
   recipe(Rented_Bike_Count ~ ., data = bike_train) |>
+  # Don't include Date in the model, make it a unique ID
   update_role(Date, new_role = "ID") |>
+  # Find the day of the week, use it to determine the weekend, then drop Date_dow
   step_date(Date, features = c("dow")) |>
   step_mutate(Weekend = factor(if_else((Date_dow == "Sat" | 
                                         Date_dow == "Sun"),
                                "Yes", "No"))) |>
   step_rm(Date_dow) |>
+  # Normalize all numeric variables to get them on the same scale
   step_normalize(all_numeric(), -all_outcomes()) |>
   step_poly(all_numeric_predictors(), degree = 2) |>
   step_dummy(Seasons, Holiday, Weekend) |>
