@@ -23,3 +23,135 @@ bike_sharing <- read_csv("SeoulBikeData.csv",
                          skip = 1)
 bike_sharing
 ```
+
+## EDA
+
+To start we will check for missing data. From the output there is no missing data.
+
+```{r}
+colSums(is.na(bike_sharing))
+```
+
+Next we will look at column types and the values within columns.
+
+```{r}
+str(bike_sharing)
+```
+
+To look at the basic summary statistics of numerical variables, the summary function can be used. It should be noted that the Date column is simply every day of the year with an entry for each hour of that date. Most of the variables look reasonable, though there are some like Rainfall and Snowfall that have at least half of the data being 0. Density plots or box plots may be needed to check the distributions of the data.
+
+```{r}
+summary(bike_sharing)
+```
+
+For categorical variables we can look at the values that they take on. As you would expect there is a roughly equal spread of entries for each season. There's far fewer holiday entries, than non-Holiday, as well as far fewer non-functioning days than functioning ones.
+
+```{r}
+# Finds the count of the four seasons
+bike_sharing |>
+  group_by(Seasons) |>
+  summarize(count = n())
+```
+
+```{r}
+bike_sharing |>
+  group_by(Holiday) |>
+  summarize(count = n())
+```
+
+```{r}
+bike_sharing |>
+  group_by(Functioning_Day) |>
+  summarize(count = n())
+```
+
+The Date will be converted to a datetime variable, and the three categorical variables, Seasons, Holiday, and Functioning_Day will be converted to factors so they can be used in a model.
+
+```{r}
+bike_sharing <- bike_sharing |>
+  mutate(Date = as.POSIXct(Date, format = "%d/%m/%Y"),
+         Seasons = as.factor(Seasons),
+         Holiday = as.factor(Holiday),
+         Functioning_Day = as.factor(Functioning_Day))
+
+bike_sharing
+```
+
+The response variable of our data is the Rented Bike Count. We want to know how the explanatory variables vary with it.
+
+```{r}
+plot(bike_sharing$Hour, bike_sharing$Rented_Bike_Count)
+```
+
+```{r}
+plot(bike_sharing$Temperature, bike_sharing$Rented_Bike_Count)
+```
+
+```{r}
+plot(bike_sharing$Humidity, bike_sharing$Rented_Bike_Count)
+```
+
+```{r}
+plot(bike_sharing$Wind_Speed, bike_sharing$Rented_Bike_Count)
+```
+
+```{r}
+plot(bike_sharing$Visibility, bike_sharing$Rented_Bike_Count)
+```
+
+```{r}
+plot(bike_sharing$Dew_Point_Temperature, bike_sharing$Rented_Bike_Count)
+```
+
+```{r}
+plot(bike_sharing$Solar_Radiation, bike_sharing$Rented_Bike_Count)
+```
+
+```{r}
+plot(bike_sharing$Rainfall, bike_sharing$Rented_Bike_Count)
+```
+
+```{r}
+plot(bike_sharing$Snowfall, bike_sharing$Rented_Bike_Count)
+```
+
+```{r}
+bike_sharing |>
+  group_by(Seasons) |>
+  summarize(mean_bikes = mean(Rented_Bike_Count),
+            med_bikes = median(Rented_Bike_Count),
+            SD_bikes = sd(Rented_Bike_Count),
+            IQR_bikes = IQR(Rented_Bike_Count))
+```
+
+There seems to be a clear pattern in that more bikes are rented in the spring, summer, and fall, than in the winter, which is what we would expect.
+
+```{r}
+bike_sharing |>
+  group_by(Holiday) |>
+  summarize(mean_bikes = mean(Rented_Bike_Count),
+            med_bikes = median(Rented_Bike_Count),
+            SD_bikes = sd(Rented_Bike_Count),
+            IQR_bikes = IQR(Rented_Bike_Count))
+```
+
+Interestingly enough more bikes are sold on non-holidays, but that may also be because a lot of holidays are during the colder months.
+
+```{r}
+bike_sharing |>
+  group_by(Functioning_Day) |>
+  summarize(mean_bikes = mean(Rented_Bike_Count),
+            med_bikes = median(Rented_Bike_Count),
+            SD_bikes = sd(Rented_Bike_Count),
+            IQR_bikes = IQR(Rented_Bike_Count))
+```
+
+Finally, for the Functioning Day variable no bikes were sold on non-functioning days, which also makes sense.
+
+Summarize across hours
+
+```{r}
+bike_sharing |>
+  group_by(date, seasons, holiday) |>
+  
+```
