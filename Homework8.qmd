@@ -45,7 +45,7 @@ str(bike_sharing)
 
 Date, Seasons, Holiday, and Functioning_Day were all set to character when loading the file. All of the other variables were set to numeric.
 
-To look at the basic summary statistics of numerical variables, the summary function can be used. Most of the variables look reasonable, though there are some like Rainfall and Snowfall that have at least half of the data being 0. Density plots or box plots may be needed to check the distributions of the data.
+To look at the basic summary statistics of numerical variables, the summary function can be used. Most of the variables look reasonable, though there are some like Rainfall and Snowfall that have at least half of the data being 0. Density plots or box plots could be used to check the distributions of the data.
 
 ```{r}
 # Basic Summary Statistics for Numerical Variables
@@ -179,7 +179,7 @@ bike_sharing
 Next we will summarize the data across the hours so there is only one observation per day.
 
 ```{r}
-# Summarzing data to only have one observation per day
+# Summarizing data to only have one observation per day
 bike_sharing <- bike_sharing |>
   group_by(Date, Seasons, Holiday) |>
   summarize(across(c(Rented_Bike_Count, Rainfall, Snowfall), sum),
@@ -329,6 +329,7 @@ bike_rec <-
   step_rm(Date_dow) |>
   # Normalize all numeric variables to get them on the same scale
   step_normalize(all_numeric(), -all_outcomes()) |>
+  # Create dummy variables for categorical variables
   step_dummy(Seasons, Holiday, Weekend) #|>
   #prep(training = bike_train) |>
   #bake(bike_train)
@@ -349,7 +350,9 @@ bike_rec2 <-
   step_rm(Date_dow) |>
   # Normalize all numeric variables to get them on the same scale
   step_normalize(all_numeric(), -all_outcomes()) |>
+  # Create dummy variables for categorical variables
   step_dummy(Seasons, Holiday, Weekend) |>
+  # Create interaction terms between variables
   step_interact(terms = ~ (starts_with("Seasons")):(Holiday_No.Holiday +
                                                       Temperature)) |>
   step_interact(terms = ~Temperature:Rainfall) #|>
@@ -372,8 +375,11 @@ bike_rec3 <-
   step_rm(Date_dow) |>
   # Normalize all numeric variables to get them on the same scale
   step_normalize(all_numeric(), -all_outcomes()) |>
+  # Create quadratic terms for the numeric variables
   step_poly(all_numeric_predictors(), degree = 2) |>
+  # Create dummy variables for categorical variables
   step_dummy(Seasons, Holiday, Weekend) |>
+  # Create interaction terms between variables
   step_interact(terms = ~ (starts_with("Seasons")):(Holiday_No.Holiday + 
                                                     Temperature_poly_1)) |>
   step_interact(terms = ~Temperature_poly_1:Rainfall_poly_1) #|>
@@ -391,7 +397,8 @@ bike_mod
 ```
 
 ```{r}
-# Create workflows and fit models using CV
+# Create workflows for each recipe each using the same model engine
+# Then fit the models using 10 fold CV
 bike_CV_fit <- workflow() |>
   add_recipe(bike_rec) |>
   add_model(bike_mod) |>
@@ -409,33 +416,34 @@ bike_CV_fit3 <- workflow() |>
 ```
 
 ```{r}
-# Get metrics
+# Get metrics for each model fit
 rbind(bike_CV_fit |> collect_metrics(),
       bike_CV_fit2 |> collect_metrics(),
       bike_CV_fit3 |> collect_metrics())
-
-#bike_CV_fit |>
-#  tidy()
 ```
 
 The third fit which had dummy variables, interactions, and quadratics had the lowest average training cross validation root mean squared error. Therefore this will be the model we use to train on the full set.
 
 ```{r}
+# Create a workflow for the third recipe with the linear model engine
+# Then fit to the entire training set and test on the test set
 bike_best <- workflow() |>
   add_recipe(bike_rec3) |>
   add_model(bike_mod) |>
   last_fit(bike_share_split)
 
+# Get the test set error
 bike_best |>
   collect_metrics()
 ```
 
-For the third bike model that we've chosen, the RMSE on the test set was 2963.3.
+For the third bike model that we've chosen, the RMSE on the test set was 2963.4.
+
+Finally, we will get the final best model parameter estimates, standard errors, test statistics, and p-values.
 
 ```{r}
+# Get the final model coefficient table
 bike_best |>
   extract_fit_parsnip() |>
   tidy()
 ```
-
-Maybe comment on the final model variable p-values.
