@@ -11,6 +11,7 @@ Seoul Bike Sharing Demand dataset from the UCI Machine Learning Repository.
 ```{r}
 # Load Libraries
 library(tidyverse)
+library(tidymodels)
 ```
 
 ```{r}
@@ -146,12 +147,181 @@ bike_sharing |>
             IQR_bikes = IQR(Rented_Bike_Count))
 ```
 
-Finally, for the Functioning Day variable no bikes were sold on non-functioning days, which also makes sense.
-
-Summarize across hours
+Finally, for the Functioning Day variable no bikes were sold on non-functioning days. This means that future non-functioning days will most likely also have 0 bikes rented. Therefore, we will subset the data to only look on the days that were functioning.
 
 ```{r}
-bike_sharing |>
-  group_by(date, seasons, holiday) |>
-  
+bike_sharing <- bike_sharing |>
+  filter(Functioning_Day == "Yes") |>
+  select(everything(), -Functioning_Day)
+
+bike_sharing
 ```
+
+Next we will summarize the data across the hours so there is only one observation per day.
+
+```{r}
+bike_sharing <- bike_sharing |>
+  group_by(Date, Seasons, Holiday) |>
+  summarize(across(c(Rented_Bike_Count, Rainfall, Snowfall), sum),
+            across(c(Temperature, Humidity, Wind_Speed, Visibility,
+                        Dew_Point_Temperature, Solar_Radiation), mean),
+            .groups = "drop")
+
+bike_sharing
+```
+
+```{r}
+# Basic Summary Statistics
+summary(bike_sharing)
+```
+
+```{r}
+# Correlations between numeric variables
+bike_sharing |>
+  select(where(is.numeric)) |>
+  cor(use = "pairwise.complete.obs")
+```
+
+There does seem to be a very high correlation between Temperature and Dew Point Temperature, this could potentially cause multicollinearity issues. Other than that the variables most correlated with Rented Bike Count are Temperature, Dew_Point_Temperature, and Solar_Radiation. All of these are reasonably strong positive correlations.
+
+```{r}
+bike_sharing |> 
+  group_by(Seasons) |>
+  summarize(mean_bike = mean(Rented_Bike_Count),
+            med_bike = median(Rented_Bike_Count),
+            SD_bike = sd(Rented_Bike_Count),
+            IQR_bike = IQR(Rented_Bike_Count))
+```
+
+Recreate basic summary statistics then create some plots to explore the relationships.
+
+## Split the Data
+
+```{r}
+set.seed(10)
+
+bike_share_split <- initial_split(bike_sharing, prop = 0.75, strata=Seasons)
+bike_train <- training(bike_share_split)
+bike_test <- testing(bike_share_split)
+
+bike_folds <- vfold_cv(bike_train, v = 10)
+```
+
+## Fitting MLR Models
+
+First Recipe
+
+```{r}
+bike_rec <- 
+  recipe(Rented_Bike_Count ~ ., data = bike_train) |>
+  update_role(Date, new_role = "ID") |>
+  step_date(Date, features = c("dow")) |>
+  step_mutate(Weekend = factor(if_else((Date_dow == "Sat" | 
+                                        Date_dow == "Sun"),
+                               "Yes", "No"))) |>
+  step_rm(Date_dow) |>
+  step_normalize(all_numeric(), -all_outcomes()) |>
+  step_dummy(Seasons, Holiday, Weekend) #|>
+  #prep(training = bike_train) |>
+  #bake(bike_train)
+```
+
+Second Recipe
+
+```{r}
+bike_rec2 <- 
+  recipe(Rented_Bike_Count ~ ., data = bike_train) |>
+  update_role(Date, new_role = "ID") |>
+  step_date(Date, features = c("dow")) |>
+  step_mutate(Weekend = factor(if_else((Date_dow == "Sat" | 
+                                        Date_dow == "Sun"),
+                               "Yes", "No"))) |>
+  step_rm(Date_dow) |>
+  step_normalize(all_numeric(), -all_outcomes()) |>
+  step_dummy(Seasons, Holiday, Weekend) |>
+  step_interact(terms = ~ (starts_with("Seasons")):(Holiday_No.Holiday +
+                                                      Temperature)) |>
+  step_interact(terms = ~Temperature:Rainfall) #|>
+  #prep(training = bike_train) |>
+  #bake(bike_train)
+```
+
+Third Recipe
+
+```{r}
+bike_rec3 <- 
+  recipe(Rented_Bike_Count ~ ., data = bike_train) |>
+  update_role(Date, new_role = "ID") |>
+  step_date(Date, features = c("dow")) |>
+  step_mutate(Weekend = factor(if_else((Date_dow == "Sat" | 
+                                        Date_dow == "Sun"),
+                               "Yes", "No"))) |>
+  step_rm(Date_dow) |>
+  step_normalize(all_numeric(), -all_outcomes()) |>
+  step_poly(all_numeric_predictors(), degree = 2) |>
+  step_dummy(Seasons, Holiday, Weekend) |>
+  step_interact(terms = ~ (starts_with("Seasons")):(Holiday_No.Holiday + 
+                                                    Temperature_poly_1)) |>
+  step_interact(terms = ~Temperature_poly_1:Rainfall_poly_1) #|>
+  #prep(training = bike_train) |>
+  #bake(bike_train)
+```
+
+```{r}
+# Set up the linear model fit to use the "lm" engine
+bike_mod <- linear_reg() |>
+  set_engine("lm") |>
+  translate()
+
+bike_mod
+```
+
+```{r}
+# Create workflows and fit models using CV
+bike_CV_fit <- workflow() |>
+  add_recipe(bike_rec) |>
+  add_model(bike_mod) |>
+  fit_resamples(bike_folds)
+
+bike_CV_fit2 <- workflow() |>
+  add_recipe(bike_rec2) |>
+  add_model(bike_mod) |>
+  fit_resamples(bike_folds)
+
+bike_CV_fit3 <- workflow() |>
+  add_recipe(bike_rec3) |>
+  add_model(bike_mod) |>
+  fit_resamples(bike_folds)
+```
+
+```{r}
+# Get metrics
+rbind(bike_CV_fit |> collect_metrics(),
+      bike_CV_fit2 |> collect_metrics(),
+      bike_CV_fit3 |> collect_metrics())
+
+#bike_CV_fit |>
+#  tidy()
+```
+
+The third fit which had dummy variables, interactions, and quadratics had the lowest average training cross validation root mean squared error. Therefore this will be the model we use to train on the full set.
+
+```{r}
+bike_best <- workflow() |>
+  add_recipe(bike_rec3) |>
+  add_model(bike_mod) |>
+  last_fit(bike_share_split)
+
+bike_best |>
+  collect_metrics()
+```
+
+For the third bike model that we've chosen, the RMSE on the test set was 2963.3.
+
+```{r}
+bike_best |>
+  extract_fit_parsnip() |>
+  tidy()
+```
+
+Maybe comment on the final model variable p-values.
